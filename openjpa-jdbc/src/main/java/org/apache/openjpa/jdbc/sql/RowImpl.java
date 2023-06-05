@@ -25,12 +25,16 @@ import java.math.BigInteger;
 import java.sql.Array;
 import java.sql.Blob;
 import java.sql.Clob;
+import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
@@ -43,11 +47,13 @@ import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ColumnIO;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
 import org.apache.openjpa.jdbc.schema.Table;
+import org.apache.openjpa.jdbc.sql.partitionedinsert.PartitionRecord;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.InternalException;
+
 
 /**
  * Basic {@link Row} implementation.
@@ -70,6 +76,30 @@ public class RowImpl
 
     private String _sql = null;
     private boolean _isFlushed = false;
+    
+    
+    static private String sqlPartition = "with recursive partitions(parent, tbl,partattrs,lower_bound,upper_bound, lev) as \n"
+			+ "    (\n" + "    select null::oid parent, c.oid tbl, \n"
+			+ "        null::int2vector partattrs, null::text, null::text, 0::int2 \n" + "        from \n"
+			+ "        pg_class c join information_schema.tables t on (c.relname = t.table_name and relname !~ '^mdb_cu|^source$|^ts$' ) \n"
+			+ "        join pg_namespace ns ON (c.relnamespace = ns.oid and t.table_schema = nspname and nspname = any(current_schemas(false) ) )  \n"
+			+ "        where relkind='p' and not exists \n"
+			+ "        (select 1 from pg_inherits i where c.oid = i.inhrelid ) \n" + "    union ALL \n"
+			+ "        SELECT inhparent, i.inhrelid tbl , pt.partattrs , \n"
+			+ " 		 coalesce(nullif(replace((regexp_match(partition_bound, 'FROM \\((MINVALUE|['']*([0-9a-z]+)['']*)\\)'))[1],'''',''), 'MINVALUE'),'0') AS lower_bound, \n"
+			+ " 		 nullif(replace((regexp_match(partition_bound, 'TO \\((MAXVALUE|['']*([0-9a-z]+)['']*)\\)'))[1],'''',''), 'MAXVALUE') AS  upper_bound, \n"
+			+ "        lev + 1::int2 \n" + "        FROM \n"
+			+ "        pg_inherits i JOIN pg_class c ON (c.oid = i.inhrelid and relname !~ 'mdb_cu')\n"
+			+ "        JOIN pg_partitioned_table pt on (i.inhparent = pt.partrelid) \n"
+			+ "        JOIN partitions p on (p.tbl = i.inhparent) \n"
+			+ "        join lateral pg_get_expr(c.relpartbound, i.inhrelid) AS partition_bound on true\n"
+			+ "        ) select \n"
+			+ "        parent::regclass::text,tbl::regclass::text,attname,lower_bound::bigint,upper_bound::bigint, lev \n"
+			+ "        from partitions join pg_attribute a on (attnum = any(partattrs) and a.attrelid=parent) \n"
+			+ "        order by 1,4 ";
+
+    
+    public static ThreadLocal<List<PartitionRecord<Long>>> partitions = new ThreadLocal<>();
 
     /**
      * Constructor.
@@ -94,7 +124,6 @@ public class RowImpl
         _types = new int[len];
     }
 
-    @Override
     public Table getTable() {
         return _cols[0].getTable();
     }
@@ -103,17 +132,14 @@ public class RowImpl
         return _cols;
     }
 
-    @Override
     public int getAction() {
         return _action;
     }
 
-    @Override
     public boolean isValid() {
         return (flags & VALID) != 0;
     }
 
-    @Override
     public void setValid(boolean valid) {
         if (valid)
             flags |= VALID;
@@ -124,7 +150,6 @@ public class RowImpl
     /**
      * This implementation does not track primary keys.
      */
-    @Override
     public OpenJPAStateManager getPrimaryKey() {
         return null;
     }
@@ -132,7 +157,6 @@ public class RowImpl
     /**
      * This implementation does not track failed objects.
      */
-    @Override
     public Object getFailedObject() {
         return null;
     }
@@ -140,7 +164,6 @@ public class RowImpl
     /**
      * This implementation does not track failed objects.
      */
-    @Override
     public void setFailedObject(Object failed) {
         throw new InternalException();
     }
@@ -166,19 +189,16 @@ public class RowImpl
         return _vals[getWhereIndex(col)];
     }
 
-    @Override
     public void setPrimaryKey(OpenJPAStateManager sm)
         throws SQLException {
         setPrimaryKey(null, sm);
     }
 
-    @Override
     public void setPrimaryKey(ColumnIO io, OpenJPAStateManager sm)
         throws SQLException {
         flushPrimaryKey(sm, io, true);
     }
 
-    @Override
     public void wherePrimaryKey(OpenJPAStateManager sm)
         throws SQLException {
         flushPrimaryKey(sm, null, false);
@@ -198,20 +218,17 @@ public class RowImpl
         flushJoinValues(sm, oid, cols, cols, io, set);
     }
 
-    @Override
     public void setForeignKey(ForeignKey fk, OpenJPAStateManager sm)
         throws SQLException {
         setForeignKey(fk, null, sm);
     }
 
-    @Override
     public void setForeignKey(ForeignKey fk, ColumnIO io,
         OpenJPAStateManager sm)
         throws SQLException {
         flushForeignKey(fk, io, sm, true);
     }
 
-    @Override
     public void whereForeignKey(ForeignKey fk, OpenJPAStateManager sm)
         throws SQLException {
         flushForeignKey(fk, null, sm, false);
@@ -224,9 +241,8 @@ public class RowImpl
         throws SQLException {
         _sql = null;
         Column[] cols = fk.getColumns();
-        for (Column col : cols) {
-            _vals[getSetIndex(col)] = null;
-        }
+        for (int i = 0; i < cols.length; i++)
+            _vals[getSetIndex(cols[i])] = null;
     }
 
     /**
@@ -375,7 +391,6 @@ public class RowImpl
         return true;
     }
 
-    @Override
     public void setRelationId(Column col, OpenJPAStateManager sm,
         RelationId rel)
         throws SQLException {
@@ -392,95 +407,80 @@ public class RowImpl
         _vals[getSetIndex(col)] = null;
     }
 
-    @Override
     public void setArray(Column col, Array val)
         throws SQLException {
-        setObject(col, val, JavaTypes.ARRAY, false);
+        setObject(col, val, JavaSQLTypes.ARRAY, false);
     }
 
-    @Override
     public void setAsciiStream(Column col, InputStream val, int length)
         throws SQLException {
         setObject(col, (val == null) ? null : new Sized(val, length),
             JavaSQLTypes.ASCII_STREAM, false);
     }
 
-    @Override
     public void setBigDecimal(Column col, BigDecimal val)
         throws SQLException {
         setObject(col, val, JavaTypes.BIGDECIMAL, false);
     }
 
-    @Override
     public void setBigInteger(Column col, BigInteger val)
         throws SQLException {
         setObject(col, val, JavaTypes.BIGINTEGER, false);
     }
 
-    @Override
     public void setBinaryStream(Column col, InputStream val, int length)
         throws SQLException {
         setObject(col, (val == null) ? null : new Sized(val, length),
             JavaSQLTypes.BINARY_STREAM, false);
     }
 
-    @Override
     public void setBlob(Column col, Blob val)
         throws SQLException {
         setObject(col, val, JavaSQLTypes.BLOB, false);
     }
 
-    @Override
     public void setBoolean(Column col, boolean val)
         throws SQLException {
         setObject(col, ((val) ? Boolean.TRUE : Boolean.FALSE),
             JavaTypes.BOOLEAN, false);
     }
 
-    @Override
     public void setByte(Column col, byte val)
         throws SQLException {
-        setObject(col, val, JavaTypes.BYTE, false);
+        setObject(col, new Byte(val), JavaTypes.BYTE, false);
     }
 
-    @Override
     public void setBytes(Column col, byte[] val)
         throws SQLException {
         setObject(col, val, JavaSQLTypes.BYTES, false);
     }
 
-    @Override
     public void setCalendar(Column col, Calendar val)
         throws SQLException {
         setObject(col, val, JavaTypes.CALENDAR, false);
     }
 
-    @Override
     public void setChar(Column col, char val)
         throws SQLException {
-        setObject(col, val, JavaTypes.CHAR, false);
+        setObject(col, new Character(val), JavaTypes.CHAR, false);
     }
 
-    @Override
     public void setCharacterStream(Column col, Reader val, int length)
         throws SQLException {
         setObject(col, (val == null) ? null : new Sized(val, length),
             JavaSQLTypes.CHAR_STREAM, false);
     }
 
-    @Override
     public void setClob(Column col, Clob val)
         throws SQLException {
         setObject(col, val, JavaSQLTypes.CLOB, false);
     }
 
-    @Override
     public void setDate(Column col, Date val)
         throws SQLException {
         setObject(col, val, JavaTypes.DATE, false);
     }
 
-    @Override
     public void setDate(Column col, java.sql.Date val, Calendar cal)
         throws SQLException {
         Object obj;
@@ -491,73 +491,61 @@ public class RowImpl
         setObject(col, obj, JavaSQLTypes.SQL_DATE, false);
     }
 
-    @Override
     public void setDouble(Column col, double val)
         throws SQLException {
-        setObject(col, val, JavaTypes.DOUBLE, false);
+        setObject(col, new Double(val), JavaTypes.DOUBLE, false);
     }
 
-    @Override
     public void setFloat(Column col, float val)
         throws SQLException {
-        setObject(col, val, JavaTypes.FLOAT, false);
+        setObject(col, new Float(val), JavaTypes.FLOAT, false);
     }
 
-    @Override
     public void setInt(Column col, int val)
         throws SQLException {
         setObject(col, val, JavaTypes.INT, false);
     }
 
-    @Override
     public void setLong(Column col, long val)
         throws SQLException {
         setObject(col, val, JavaTypes.LONG, false);
     }
 
-    @Override
     public void setLocale(Column col, Locale val)
         throws SQLException {
         setObject(col, val, JavaTypes.LOCALE, false);
     }
 
-    @Override
     public void setNull(Column col)
         throws SQLException {
         setNull(col, false);
     }
 
-    @Override
     public void setNull(Column col, boolean overrideDefault)
         throws SQLException {
         setObject(col, null, col.getJavaType(), overrideDefault);
     }
 
-    @Override
     public void setNumber(Column col, Number val)
         throws SQLException {
         setObject(col, val, JavaTypes.NUMBER, false);
     }
 
-    @Override
     public void setRaw(Column col, String val)
         throws SQLException {
         setObject(col, val, RAW, false);
     }
 
-    @Override
     public void setShort(Column col, short val)
         throws SQLException {
-        setObject(col, val, JavaTypes.SHORT, false);
+        setObject(col, new Short(val), JavaTypes.SHORT, false);
     }
 
-    @Override
     public void setString(Column col, String val)
         throws SQLException {
         setObject(col, val, JavaTypes.STRING, false);
     }
 
-    @Override
     public void setTime(Column col, Time val, Calendar cal)
         throws SQLException {
         Object obj;
@@ -568,7 +556,6 @@ public class RowImpl
         setObject(col, obj, JavaSQLTypes.TIME, false);
     }
 
-    @Override
     public void setTimestamp(Column col, Timestamp val, Calendar cal)
         throws SQLException {
         Object obj;
@@ -579,7 +566,6 @@ public class RowImpl
         setObject(col, obj, JavaSQLTypes.TIMESTAMP, false);
     }
 
-    @Override
     public void setObject(Column col, Object val)
         throws SQLException {
         if (val instanceof Raw)
@@ -588,95 +574,80 @@ public class RowImpl
             setObject(col, val, col.getJavaType(), false);
     }
 
-    @Override
     public void whereArray(Column col, Array val)
         throws SQLException {
         whereObject(col, val, JavaSQLTypes.SQL_ARRAY);
     }
 
-    @Override
     public void whereAsciiStream(Column col, InputStream val, int length)
         throws SQLException {
         whereObject(col, (val == null) ? null : new Sized(val, length),
             JavaSQLTypes.ASCII_STREAM);
     }
 
-    @Override
     public void whereBigDecimal(Column col, BigDecimal val)
         throws SQLException {
         whereObject(col, val, JavaTypes.BIGDECIMAL);
     }
 
-    @Override
     public void whereBigInteger(Column col, BigInteger val)
         throws SQLException {
         whereObject(col, val, JavaTypes.BIGINTEGER);
     }
 
-    @Override
     public void whereBinaryStream(Column col, InputStream val, int length)
         throws SQLException {
         whereObject(col, (val == null) ? null : new Sized(val, length),
             JavaSQLTypes.BINARY_STREAM);
     }
 
-    @Override
     public void whereBlob(Column col, Blob val)
         throws SQLException {
         whereObject(col, val, JavaSQLTypes.BLOB);
     }
 
-    @Override
     public void whereBoolean(Column col, boolean val)
         throws SQLException {
         whereObject(col, ((val) ? Boolean.TRUE : Boolean.FALSE),
             JavaTypes.BOOLEAN);
     }
 
-    @Override
     public void whereByte(Column col, byte val)
         throws SQLException {
-        whereObject(col, val, JavaTypes.BYTE);
+        whereObject(col, new Byte(val), JavaTypes.BYTE);
     }
 
-    @Override
     public void whereBytes(Column col, byte[] val)
         throws SQLException {
         whereObject(col, val, JavaSQLTypes.BYTES);
     }
 
-    @Override
     public void whereCalendar(Column col, Calendar val)
         throws SQLException {
         whereObject(col, val, JavaTypes.CALENDAR);
     }
 
-    @Override
     public void whereChar(Column col, char val)
         throws SQLException {
-        whereObject(col, val, JavaTypes.CHAR);
+        whereObject(col, new Character(val), JavaTypes.CHAR);
     }
 
-    @Override
     public void whereCharacterStream(Column col, Reader val, int length)
         throws SQLException {
         whereObject(col, (val == null) ? null : new Sized(val, length),
             JavaSQLTypes.CHAR_STREAM);
     }
 
-    @Override
     public void whereClob(Column col, Clob val)
         throws SQLException {
         whereObject(col, val, JavaSQLTypes.CLOB);
     }
 
-    @Override
     public void whereDate(Column col, Date val)
         throws SQLException {
         whereObject(col, val, JavaTypes.DATE);
     }
 
-    @Override
     public void whereDate(Column col, java.sql.Date val, Calendar cal)
         throws SQLException {
         Object obj;
@@ -687,67 +658,56 @@ public class RowImpl
         whereObject(col, obj, JavaSQLTypes.SQL_DATE);
     }
 
-    @Override
     public void whereDouble(Column col, double val)
         throws SQLException {
-        whereObject(col, val, JavaTypes.DOUBLE);
+        whereObject(col, new Double(val), JavaTypes.DOUBLE);
     }
 
-    @Override
     public void whereFloat(Column col, float val)
         throws SQLException {
-        whereObject(col, val, JavaTypes.FLOAT);
+        whereObject(col, new Float(val), JavaTypes.FLOAT);
     }
 
-    @Override
     public void whereInt(Column col, int val)
         throws SQLException {
         whereObject(col, val, JavaTypes.INT);
     }
 
-    @Override
     public void whereLong(Column col, long val)
         throws SQLException {
         whereObject(col, val, JavaTypes.LONG);
     }
 
-    @Override
     public void whereLocale(Column col, Locale val)
         throws SQLException {
         whereObject(col, val, JavaTypes.LOCALE);
     }
 
-    @Override
     public void whereNull(Column col)
         throws SQLException {
         whereObject(col, null, col.getJavaType());
     }
 
-    @Override
     public void whereNumber(Column col, Number val)
         throws SQLException {
         whereObject(col, val, JavaTypes.NUMBER);
     }
 
-    @Override
     public void whereRaw(Column col, String val)
         throws SQLException {
         whereObject(col, val, RAW);
     }
 
-    @Override
     public void whereShort(Column col, short val)
         throws SQLException {
-        whereObject(col, val, JavaTypes.SHORT);
+        whereObject(col, new Short(val), JavaTypes.SHORT);
     }
 
-    @Override
     public void whereString(Column col, String val)
         throws SQLException {
         whereObject(col, val, JavaTypes.STRING);
     }
 
-    @Override
     public void whereTime(Column col, Time val, Calendar cal)
         throws SQLException {
         Object obj;
@@ -758,7 +718,6 @@ public class RowImpl
         whereObject(col, obj, JavaSQLTypes.TIME);
     }
 
-    @Override
     public void whereTimestamp(Column col, Timestamp val, Calendar cal)
         throws SQLException {
         Object obj;
@@ -769,7 +728,6 @@ public class RowImpl
         whereObject(col, obj, JavaSQLTypes.TIMESTAMP);
     }
 
-    @Override
     public void whereObject(Column col, Object val)
         throws SQLException {
         if (val instanceof Raw)
@@ -881,8 +839,27 @@ public class RowImpl
     private String getInsertSQL(DBDictionary dict) {
         StringBuilder buf = new StringBuilder();
         StringBuilder vals = new StringBuilder();
-        buf.append("INSERT INTO ").
-            append(dict.getFullName(getTable(), false)).append(" (");
+        
+        String unpartitionedTableNameFullName = dict.getFullName(getTable(), false);
+        
+        //Assume that partitioned table have the schema name prefixed.
+        if(!unpartitionedTableNameFullName.contains(".")) {
+        	buf.append("INSERT INTO ")
+        	.append(unpartitionedTableNameFullName).append(" (");
+        }
+        else {
+        	
+        	String schemaName = unpartitionedTableNameFullName.split("\\.")[0];
+        	String unpartitionedTableName = unpartitionedTableNameFullName.split("\\.")[1];
+        	
+        	//vals0 = runid vals2 = sourceid. FIXME: get index from cols
+        	String partionedTableName = getPartitionTableName(unpartitionedTableName,(Integer) _vals[0], (Long)_vals[2]);
+        	buf.append("INSERT INTO ")
+        	.append(schemaName)
+        	.append("_part.")
+        	.append(partionedTableName).append(" (");
+        }
+        
 
         boolean hasVal = false;
         for (int i = 0; i < _cols.length; i++) {
@@ -1023,7 +1000,6 @@ public class RowImpl
     /**
      * Performs a proper deep clone.
      */
-    @Override
     public Object clone() {
         RowImpl clone = newInstance(getColumns(), getAction());
         copyInto(clone, false);
@@ -1082,4 +1058,97 @@ public class RowImpl
     public void setFlushed(boolean isFlushed) {
         _isFlushed = isFlushed;
     }
+    
+    
+    
+    /**
+     * Fucntion returning the proper partion given a table name runid and sourceid
+     * @param originalTableName
+     * @param runid
+     * @param sourceid
+     * @return
+     */
+    public static String getPartitionTableName(String originalTableName, Integer runid, Long sourceid) {
+
+    	String runPartition = null;
+    	for (PartitionRecord<Long> p: partitions.get()) {
+    		if(p.getParentName().equals(originalTableName.toLowerCase()) && p.getLevel() == 1
+					&& runid >= p.getRange().getLeft()
+					&& (runid < p.getRange().getRight() || p.getRange().getRight() == null)) {
+    			runPartition = p.getTableName();
+    			break;
+    		}
+		}
+    	
+    	
+    	if(runPartition == null) {
+    		throw new RuntimeException("No level 1 partition were found for run " + runid + " and source " + sourceid);
+    	}
+    	
+
+    	String sourcePartition = null;
+    	for (PartitionRecord<Long> p: partitions.get()) {
+    		if(p.getParentName().equals(runPartition.toLowerCase()) && p.getLevel() == 2
+    				&& sourceid >= p.getRange().getLeft()
+    						&& (p.getRange().getRight() == null || sourceid < p.getRange().getRight())) {
+    			sourcePartition = p.getTableName();
+    			break;
+    		}
+		}
+    	
+    	//We do not always have 2 levels of partitionning. Example of sos tables
+    	if(sourcePartition == null) {
+    		return runPartition;
+    	}
+    	
+    	
+    	
+		return sourcePartition;
+	}
+
+    
+    /**
+	 * Fetch all the partitioning info for the schema. So we do this once for all tables/types. Handle closure of the
+	 * statement on the stream closure. ~100ms
+	 * 
+	 * @param store
+	 * @param sm
+	 * @param table
+	 * @return
+	 * @throws SQLException
+	 */
+	static synchronized public List<PartitionRecord<Long>> initializePartitions(Connection connection)
+			throws SQLException {
+
+		List<PartitionRecord<Long>> partitions = new ArrayList<>();
+
+		PreparedStatement pSt = connection.prepareStatement(sqlPartition);
+		// pSt.setString(1, ((ClassMapping)sm.getMetaData()).getTable().getIdentifier().getName());
+		ResultSet resultSet = pSt.executeQuery();
+
+		while (resultSet.next() == true) {
+			PartitionRecord<Long> partitionRecord = new PartitionRecord<Long>(resultSet.getString(1),
+					resultSet.getString(2), resultSet.getString(3), resultSet.getLong(4),
+					(resultSet.getLong(5)) == 0 ? null : resultSet.getLong(5), resultSet.getShort(6), null);
+
+			partitions.add(partitionRecord);
+		}
+
+//		Comparator c = new Comparator<PartitionRecord<Long>>(){
+//
+//			@Override
+//			public int compare(PartitionRecord<Long> p1, PartitionRecord<Long> p2) {
+//			
+//				return p1.getRange().getLeft().compareTo(p2.getRange().getRight());
+//			}
+//			
+//			
+//			
+//		};
+//		
+//		Collections.sort(partitions,c);
+
+		RowImpl.partitions.set(partitions);
+		return partitions;
+	}
 }
