@@ -75,22 +75,39 @@ public class RowImpl implements Row, Cloneable {
 	private String _sql = null;
 	private boolean _isFlushed = false;
 
-	static private String sqlPartition = "with recursive partitions(parent, tbl,partattrs,lower_bound,upper_bound, lev) as \n" + "    (\n" + "    select null::oid parent, c.oid tbl, \n" + "        null::int2vector partattrs, null::text, null::text, 0::int2 \n" + "        from \n"
-			+ "        pg_class c join information_schema.tables t on (c.relname = t.table_name and relname !~ '^mdb_cu|^source$|^ts$' ) \n" + "        join pg_namespace ns ON (c.relnamespace = ns.oid and t.table_schema = nspname and nspname = any(current_schemas(false) ) )  \n"
-			+ "        where relkind='p' and not exists \n" + "        (select 1 from pg_inherits i where c.oid = i.inhrelid ) \n" + "    union ALL \n" + "        SELECT inhparent, i.inhrelid tbl , pt.partattrs , \n"
-			+ " 		 coalesce(nullif(replace((regexp_match(partition_bound, 'FROM \\((MINVALUE|['']*([0-9a-z]+)['']*)\\)'))[1],'''',''), 'MINVALUE'),'0') AS lower_bound, \n"
-			+ " 		 nullif(replace((regexp_match(partition_bound, 'TO \\((MAXVALUE|['']*([0-9a-z]+)['']*)\\)'))[1],'''',''), 'MAXVALUE') AS  upper_bound, \n" + "        lev + 1::int2 \n" + "        FROM \n"
-			+ "        pg_inherits i JOIN pg_class c ON (c.oid = i.inhrelid and relname !~ 'mdb_cu')\n" + "        JOIN pg_partitioned_table pt on (i.inhparent = pt.partrelid) \n" + "        JOIN partitions p on (p.tbl = i.inhparent) \n"
-			+ "        join lateral pg_get_expr(c.relpartbound, i.inhrelid) AS partition_bound on true\n" + "        ) select \n" + "        parent::regclass::text,tbl::regclass::text,attname,lower_bound::bigint,upper_bound::bigint, lev \n"
-			+ "        from partitions join pg_attribute a on (attnum = any(partattrs) and a.attrelid=parent) \n" + "        order by 1,4 ";
+	static private String sqlPartition = "with recursive partitions(parent, tbl,partattrs,lower_bound,upper_bound, lev) as \n"
+			+ "    (\n" + "    select null::oid parent, c.oid tbl, \n"
+			+ "        null::int2vector partattrs, null::text, null::text, 0::int2 \n" + "        from \n"
+			+ "        pg_class c join information_schema.tables t "
+			+ "			on (c.relname = t.table_name and relname !~ '^mdb_cu|^source$|^ts$' ) \n"
+			+ "        join pg_namespace ns ON (c.relnamespace = ns.oid "
+			+ "			and t.table_schema = nspname and nspname = any(current_schemas(false) ) )  \n"
+			+ "        where relkind='p' and not exists \n"
+			+ "        (select 1 from pg_inherits i where c.oid = i.inhrelid ) \n" + "    union ALL \n"
+			+ "        SELECT inhparent, i.inhrelid tbl , pt.partattrs , \n"
+			+ " 		 coalesce(nullif(replace((regexp_match(partition_bound, "
+			+ "'FROM \\((MINVALUE|['']*([0-9a-z]+)['']*)\\)'))[1],'''',''), 'MINVALUE'),'0') AS lower_bound, \n"
+			+ " 		 nullif(replace((regexp_match(partition_bound,"
+			+ " 'TO \\((MAXVALUE|['']*([0-9a-z]+)['']*)\\)'))[1],'''',''), 'MAXVALUE') AS  upper_bound, \n"
+			+ "        lev + 1::int2 \n" + "        FROM \n"
+			+ "        pg_inherits i JOIN pg_class c ON (c.oid = i.inhrelid and relname !~ 'mdb_cu')\n"
+			+ "        JOIN pg_partitioned_table pt on (i.inhparent = pt.partrelid) \n"
+			+ "        JOIN partitions p on (p.tbl = i.inhparent) \n"
+			+ "        join lateral pg_get_expr(c.relpartbound, i.inhrelid) AS partition_bound on true\n"
+			+ "        ) select \n"
+			+ "        parent::regclass::text,tbl::regclass::text,attname,lower_bound::bigint,upper_bound::bigint, lev \n"
+			+ "        from partitions join pg_attribute a on (attnum = any(partattrs) and a.attrelid=parent) \n"
+			+ "        order by 1,4 ";
 
 	public static ThreadLocal<List<PartitionRecord<Long>>> partitions = new ThreadLocal<>();
 
 	/**
 	 * Constructor.
 	 *
-	 * @param table  the table the row is a part of
-	 * @param action the action on the row
+	 * @param table
+	 *            the table the row is a part of
+	 * @param action
+	 *            the action on the row
 	 */
 	public RowImpl(Table table, int action) {
 		this(table.getColumns(), action);
@@ -242,15 +259,23 @@ public class RowImpl implements Row, Cloneable {
 	}
 
 	/**
-	 * Flush the given instance value to the given columns. Note that foreign keys may include columns also mapped by simple values. We use a priority mechanism to ensure that we do not let the nulling of a foreign key null columns also owned by simple values.
+	 * Flush the given instance value to the given columns. Note that foreign keys may include columns also mapped by
+	 * simple values. We use a priority mechanism to ensure that we do not let the nulling of a foreign key null columns
+	 * also owned by simple values.
 	 *
-	 * @param to       the instance being joined to
-	 * @param toCols   the columns being joined to
-	 * @param fromCols the columns being joined from
-	 * @param io       information about I/O capabilities in this context
-	 * @param set      whether this should be flushed as an update or as a where condition
+	 * @param to
+	 *            the instance being joined to
+	 * @param toCols
+	 *            the columns being joined to
+	 * @param fromCols
+	 *            the columns being joined from
+	 * @param io
+	 *            information about I/O capabilities in this context
+	 * @param set
+	 *            whether this should be flushed as an update or as a where condition
 	 */
-	private void flushJoinValues(OpenJPAStateManager to, Object oid, Column[] toCols, Column[] fromCols, ColumnIO io, boolean set) throws SQLException {
+	private void flushJoinValues(OpenJPAStateManager to, Object oid, Column[] toCols, Column[] fromCols, ColumnIO io,
+			boolean set) throws SQLException {
 		if (to == null) {
 			for (int i = 0; i < fromCols.length; i++) {
 				if (set && canSet(io, i, true))
@@ -277,9 +302,11 @@ public class RowImpl implements Row, Cloneable {
 
 			join = toMapping.assertJoinable(toCols[i]);
 			if (oid != null)
-				val = join.getJoinValue(oid, toCols[i], (JDBCStore) to.getContext().getStoreManager().getInnermostDelegate());
+				val = join.getJoinValue(oid, toCols[i],
+						(JDBCStore) to.getContext().getStoreManager().getInnermostDelegate());
 			else
-				val = join.getJoinValue(to, toCols[i], (JDBCStore) to.getContext().getStoreManager().getInnermostDelegate());
+				val = join.getJoinValue(to, toCols[i],
+						(JDBCStore) to.getContext().getStoreManager().getInnermostDelegate());
 
 			if (set && val == null) {
 				if (canSet(io, i, true))
@@ -630,7 +657,8 @@ public class RowImpl implements Row, Cloneable {
 	}
 
 	/**
-	 * All set column methods delegate to this one. Set the given object unless this is an insert and the given column is auto-assigned.
+	 * All set column methods delegate to this one. Set the given object unless this is an insert and the given column
+	 * is auto-assigned.
 	 */
 	protected void setObject(Column col, Object val, int metaType, boolean overrideDefault) throws SQLException {
 		// never set auto increment columns and honor column defaults
@@ -724,14 +752,14 @@ public class RowImpl implements Row, Cloneable {
 	 * Return the SQL for a prepared statement insert on this row.
 	 */
 	private String getInsertSQL(DBDictionary dict) {
-		
+
 		String schemaName = getTable().getSchemaIdentifier().getName();
 		String tableName = getTable().getIdentifier().getName();
 
 		PartitionRecord<Long> p = getMaxLevelPartitionRecordFor(tableName);
 
 		if (p != null) {
-			schemaName +="_part";
+			schemaName += "_part";
 			if (p.getLevel() == 2) {
 				int runidIndex = lookupColumnIndexOfPartitionKey("runid");
 				int sourceidIndex = lookupColumnIndexOfPartitionKey("sourceid");
@@ -739,14 +767,14 @@ public class RowImpl implements Row, Cloneable {
 			}
 			if (p.getLevel() == 1) {
 				int runidIndex = lookupColumnIndexOfPartitionKey("runid");
-				tableName = getPartitionTableName(tableName, (Integer) _vals[runidIndex],  null);
+				tableName = getPartitionTableName(tableName, (Integer) _vals[runidIndex], null);
 			}
 
 		}
 
 		StringBuilder buf = new StringBuilder();
 		buf.append("INSERT INTO ");
-		buf.append(schemaName+"."+tableName);
+		buf.append(schemaName + "." + tableName);
 
 		buf.append(" (");
 
@@ -798,7 +826,8 @@ public class RowImpl implements Row, Cloneable {
 
 			// Get platform specific version column name
 			if (_cols[i].getVersionStrategy() != null)
-				buf.append(dict.toDBName(dict.getVersionColumn(_cols[i], _cols[i].getTableIdentifier()))).append(" = ?");
+				buf.append(dict.toDBName(dict.getVersionColumn(_cols[i], _cols[i].getTableIdentifier())))
+						.append(" = ?");
 			// sqlserver seems to have problems using null parameters in the
 			// where clause
 			else if (_vals[getWhereIndex(_cols[i])] == NULL)
@@ -900,7 +929,8 @@ public class RowImpl implements Row, Cloneable {
 	/**
 	 * Copy all values from this row into the given one.
 	 *
-	 * @param whereOnly if true, only copy where conditions
+	 * @param whereOnly
+	 *            if true, only copy where conditions
 	 */
 	public void copyInto(RowImpl row, boolean whereOnly) {
 		int action = getAction();
@@ -944,7 +974,7 @@ public class RowImpl implements Row, Cloneable {
 	}
 
 	/**
-	 * Fucntion returning the proper partion given a table name runid and sourceid
+	 * Function returning the proper partition given a table name runid and sourceid
 	 * 
 	 * @param originalTableName
 	 * @param runid
@@ -955,7 +985,9 @@ public class RowImpl implements Row, Cloneable {
 
 		String runPartition = null;
 		for (PartitionRecord<Long> p : partitions.get()) {
-			if (p.getParentName().equals(originalTableName.toLowerCase()) && p.getLevel() == 1 && runid >= p.getRange().getLeft() && (runid < p.getRange().getRight() || p.getRange().getRight() == null)) {
+			if (p.getParentName().equals(originalTableName.toLowerCase()) && p.getLevel() == 1
+					&& runid >= p.getRange().getLeft()
+					&& (runid < p.getRange().getRight() || p.getRange().getRight() == null)) {
 				runPartition = p.getTableName();
 				break;
 			}
@@ -968,13 +1000,16 @@ public class RowImpl implements Row, Cloneable {
 
 		String sourcePartition = null;
 		for (PartitionRecord<Long> p : partitions.get()) {
-			if (p.getParentName().equals(runPartition.toLowerCase()) && p.getLevel() == 2 && sourceid >= p.getRange().getLeft() && (p.getRange().getRight() == null || sourceid < p.getRange().getRight())) {
+			if (p.getParentName().equals(runPartition.toLowerCase()) && p.getLevel() == 2
+					&& sourceid >= p.getRange().getLeft()
+					&& (p.getRange().getRight() == null || sourceid < p.getRange().getRight())) {
 				sourcePartition = p.getTableName();
 				break;
 			}
 		}
 
-		// We do not always have 2 levels of partitionning. Example of sos tables or input table i.e ts, source, spectra etc.
+		// We do not always have 2 levels of partitionning. Example of sos tables or input table i.e ts, source, spectra
+		// etc.
 		if (sourcePartition == null) {
 			return runPartition;
 		}
@@ -984,15 +1019,16 @@ public class RowImpl implements Row, Cloneable {
 
 	/**
 	 * 
-	 * Used to retrieve the partition keys columns and values depending on the partitionning level
+	 * Used to retrieve the partition keys columns and values depending on the partitioning level
 	 * 
 	 * @param tableName
-	 * @return the PartitionRecord having the higher partitionning level or null if not found
+	 * @return the PartitionRecord having the higher partitioning level or null if not found
 	 * 
 	 */
 	public static PartitionRecord<Long> getMaxLevelPartitionRecordFor(String tableName) {
-		//can happen if partitions have not yet been initialized because partitions are initialized in the user code, not in openjpa
-		if(partitions.get()==null) {
+		// can happen if partitions have not yet been initialized because partitions are initialized in the user code,
+		// not in openjpa
+		if (partitions.get() == null) {
 			return null;
 		}
 		// assume unpartitionned
@@ -1013,11 +1049,13 @@ public class RowImpl implements Row, Cloneable {
 				return i;
 			}
 		}
-		throw new RuntimeException("Error in partitionned insert, the partition key:" + partitionKey + " is not matching any columns in the partitionned table:" + getTable().getFullIdentifier().getName());
+		throw new RuntimeException("Error in partitionned insert, the partition key:" + partitionKey
+				+ " is not matching any columns in the partitionned table:" + getTable().getFullIdentifier().getName());
 	}
 
 	/**
-	 * Fetch all the partitioning info for the schema. So we do this once for all tables/types. Handle closure of the statement on the stream closure. ~100ms
+	 * Fetch all the partitioning info for the schema. So we do this once for all tables/types. Handle closure of the
+	 * statement on the stream closure. ~100ms
 	 * 
 	 * @param store
 	 * @param sm
@@ -1025,7 +1063,8 @@ public class RowImpl implements Row, Cloneable {
 	 * @return
 	 * @throws SQLException
 	 */
-	static synchronized public List<PartitionRecord<Long>> initializePartitions(Connection connection) throws SQLException {
+	static synchronized public List<PartitionRecord<Long>> initializePartitions(Connection connection)
+			throws SQLException {
 
 		List<PartitionRecord<Long>> partitions = new ArrayList<>();
 
@@ -1033,7 +1072,9 @@ public class RowImpl implements Row, Cloneable {
 		ResultSet resultSet = pSt.executeQuery();
 
 		while (resultSet.next() == true) {
-			PartitionRecord<Long> partitionRecord = new PartitionRecord<Long>(resultSet.getString(1), resultSet.getString(2), resultSet.getString(3), resultSet.getLong(4), (resultSet.getLong(5)) == 0 ? null : resultSet.getLong(5), resultSet.getShort(6), null);
+			PartitionRecord<Long> partitionRecord = new PartitionRecord<Long>(resultSet.getString(1),
+					resultSet.getString(2), resultSet.getString(3), resultSet.getLong(4),
+					(resultSet.getLong(5)) == 0 ? null : resultSet.getLong(5), resultSet.getShort(6), null);
 
 			partitions.add(partitionRecord);
 		}
