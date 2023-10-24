@@ -28,7 +28,7 @@
     <parent>
         <groupId>org.apache.openjpa</groupId>
         <artifactId>openjpa-parent</artifactId>
-        <version>4.0.0-SNAPSHOT</version>
+        <version>4.0.1-SNAPSHOT</version>
     </parent>
 
     <artifactId>openjpa-examples</artifactId>
@@ -45,7 +45,7 @@
     <modules>
         <module>simple</module>
         <module>image-gallery</module>
-        <module>openbooks</module>
+      <!--   <module>openbooks</module> -->
     </modules>
 
     <profiles>
