@@ -1,5 +1,5 @@
 = Apache OpenJPA - README
-
+== NOTE: This Gaia DPCG openjpa version with specific PG-partitioning patches.
 == Preface
 Thank you for downloading this release of Apache OpenJPA.
 
