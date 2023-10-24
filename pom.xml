@@ -38,8 +38,8 @@
     <version>4.0.0-SNAPSHOT</version>
 
     <properties>
-        <java.class.version>11</java.class.version>
-        <java.testclass.version>11</java.testclass.version>
+        <java.class.version>21</java.class.version>
+        <java.testclass.version>21</java.testclass.version>
 
         <doclint>none</doclint>
 
@@ -50,7 +50,7 @@
 
         <site.deploy.url>scp://people.apache.org/home/${site.deploy.user.name}/public_html/openjpa/${project.version}/staging-site</site.deploy.url>
         <!-- the test settings can be overridden my specific profiles -->
-        <test.jvm.maxheapsize>1024m</test.jvm.maxheapsize>
+        <test.jvm.maxheapsize>2048m</test.jvm.maxheapsize>
         <test.jvm.arguments>-Xmx${test.jvm.maxheapsize} -XX:+HeapDumpOnOutOfMemoryError</test.jvm.arguments>
         <surefire.jvm.args>${test.jvm.arguments}</surefire.jvm.args>
         <!-- Setting for openjpa.DynamicEnhancementAgent usage -->
@@ -96,10 +96,10 @@
         <javadoc.additionalparam />
         <maven.surefire.version>3.0.0-M7</maven.surefire.version>
 
-        <xbean.version>4.23</xbean.version>
+        <xbean.version>4.24</xbean.version>
         <bval.version>3.0.0-SNAPSHOT</bval.version>
         <log4j2.version>2.19.0</log4j2.version>
-        <ant.version>1.10.12</ant.version>
+        <ant.version>1.10.14</ant.version>
 
         <jmock.version>2.9.0</jmock.version>
         <dbcp2.version>2.8.0</dbcp2.version>
@@ -1766,6 +1766,11 @@
     <!-- default versions for dependencies that child modules may include -->
     <dependencyManagement>
         <dependencies>
+<dependency>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-plugin-plugin</artifactId>
+    <version>3.10.1</version>
+</dependency>
             <dependency>
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-pool2</artifactId>
@@ -2116,12 +2121,18 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-antrun-plugin</artifactId>
-                    <version>1.8</version>
+                    <version>3.1.0</version>
                     <dependencies>
-                        <dependency>
+                         <dependency>                            
+                            <groupId>org.apache.ant</groupId>
+                            <artifactId>ant</artifactId>
+                            <version>1.10.14</version>
+                        </dependency>
+
+                        <dependency>                            
                             <groupId>org.apache.ant</groupId>
                             <artifactId>ant-jsch</artifactId>
-                            <version>1.10.9</version>
+                            <version>1.10.14</version>
                         </dependency>
                         <dependency>
                             <groupId>ant-contrib</groupId>
@@ -2185,7 +2196,7 @@
                 <plugin>
                     <groupId>org.apache.felix</groupId>
                     <artifactId>maven-bundle-plugin</artifactId>
-                    <version>4.0.0</version>
+                    <version>5.1.9</version>
                     <extensions>true</extensions>
                     <configuration>
                         <instructions>
@@ -2198,7 +2209,7 @@
                 <plugin>
                     <groupId>org.apache.karaf.tooling</groupId>
                     <artifactId>karaf-maven-plugin</artifactId>
-                    <version>4.2.1</version>
+                    <version>4.4.4</version>
                 </plugin>
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>

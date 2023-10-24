@@ -93,7 +93,7 @@
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>javacc-maven-plugin</artifactId>
-                <version>2.6</version>
+                <version>3.0.1</version>
                 <executions>
                     <execution>
                         <id>jjtree-javacc-jpql</id>
@@ -111,6 +111,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-antrun-plugin</artifactId>
+                
                 <executions>
           <!--          <execution>
                         <id>add-was-interfaces</id>
@@ -128,16 +129,20 @@
                         <id>generate-standard-sco-proxies</id>
                         <phase>process-classes</phase>
                         <configuration>
+                        <property name="ant.securitymanager.usage.warn" value="true" />            
                             <target>
-                                <java classname="org.apache.openjpa.util.ProxyManagerImpl" classpathref="maven.runtime.classpath">
+                                <property name="ant.securitymanager.usage.warn" value="true" />
+                                <java classname="org.apache.openjpa.util.ProxyManagerImpl" classpathref="maven.runtime.classpath" >                                   
                                     <arg line="-utils 5" />
                                 </java>
+                                <!-- <echoproperties /> -->
                             </target>
                         </configuration>
                         <goals>
                             <goal>run</goal>
                         </goals>
                     </execution>
+
                 </executions>
             </plugin>
             <plugin>

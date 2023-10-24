@@ -73,24 +73,24 @@
         <!-- dependencies needed for building maven plugins -->
         <dependency>
             <groupId>org.apache.maven</groupId>
-            <artifactId>maven-plugin-api</artifactId>
-            <version>${min.maven.version}</version>
+            <artifactId>maven-plugin-api</artifactId>	
+            <version>4.0.0-alpha-7</version>
         </dependency>
         <dependency>
             <groupId>org.apache.maven</groupId>
             <artifactId>maven-compat</artifactId>
-            <version>${min.maven.version}</version>
+            <version>4.0.0-alpha-7</version>
         </dependency>
         <dependency>
             <groupId>org.apache.maven.plugin-tools</groupId>
             <artifactId>maven-plugin-annotations</artifactId>
-            <version>3.5.2</version>
+            <version>3.10.1</version>
             <scope>provided</scope> <!-- annotations are only needed to build the plugin -->
         </dependency>
         <dependency>
             <groupId>org.codehaus.plexus</groupId>
             <artifactId>plexus-utils</artifactId>
-            <version>3.1.0</version>
+            <version>4.0.0</version>
         </dependency>
 
         <!-- dependencies for OpenJPA itself -->
@@ -157,6 +157,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-plugin-plugin</artifactId>
+		<version>3.10.1</version>
                 <configuration>
                     <skipErrorNoDescriptorsFound>true</skipErrorNoDescriptorsFound>
                 </configuration>
