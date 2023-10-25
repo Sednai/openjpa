@@ -754,6 +754,7 @@ public class RowImpl implements Row, Cloneable {
 	private String getInsertSQL(DBDictionary dict) {
 
 		String schemaName = getTable().getSchemaIdentifier().getName();
+		schemaName = schemaName == null ? "": schemaName;
 		String tableName = getTable().getIdentifier().getName();
 
 		PartitionRecord<Long> p = getMaxLevelPartitionRecordFor(tableName);
