@@ -97,7 +97,7 @@
         <maven.surefire.version>3.2.1</maven.surefire.version>
 
         <xbean.version>4.24</xbean.version>
-        <bval.version>3.0.0-SNAPSHOT</bval.version>
+        <bval.version>3.0.0</bval.version>
         <log4j2.version>2.21.0</log4j2.version>
         <ant.version>1.10.14</ant.version>
 
