@@ -94,11 +94,11 @@
 
         <maven.javadoc.version>3.0.1</maven.javadoc.version>
         <javadoc.additionalparam />
-        <maven.surefire.version>3.0.0-M7</maven.surefire.version>
+        <maven.surefire.version>3.2.1</maven.surefire.version>
 
         <xbean.version>4.24</xbean.version>
         <bval.version>3.0.0-SNAPSHOT</bval.version>
-        <log4j2.version>2.19.0</log4j2.version>
+        <log4j2.version>2.21.0</log4j2.version>
         <ant.version>1.10.14</ant.version>
 
         <jmock.version>2.9.0</jmock.version>

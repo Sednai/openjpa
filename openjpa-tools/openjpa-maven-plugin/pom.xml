@@ -42,7 +42,7 @@
     <inceptionYear>2011</inceptionYear>
     <properties>
         <checkstyle.suppressions.location>${project.basedir}${file.separator}..${file.separator}..${file.separator}openjpa-project${file.separator}suppressions.xml</checkstyle.suppressions.location>
-        <min.maven.version>3.3.9</min.maven.version>
+        <min.maven.version>3.9.5</min.maven.version>
     </properties>
     <prerequisites>
         <maven>${min.maven.version}</maven>
@@ -74,12 +74,12 @@
         <dependency>
             <groupId>org.apache.maven</groupId>
             <artifactId>maven-plugin-api</artifactId>	
-            <version>4.0.0-alpha-7</version>
+            <version>3.9.5</version>
         </dependency>
         <dependency>
             <groupId>org.apache.maven</groupId>
             <artifactId>maven-compat</artifactId>
-            <version>4.0.0-alpha-7</version>
+            <version>3.9.5</version>
         </dependency>
         <dependency>
             <groupId>org.apache.maven.plugin-tools</groupId>
@@ -90,7 +90,7 @@
         <dependency>
             <groupId>org.codehaus.plexus</groupId>
             <artifactId>plexus-utils</artifactId>
-            <version>4.0.0</version>
+            <version>3.5.1</version>
         </dependency>
 
         <!-- dependencies for OpenJPA itself -->
