@@ -102,7 +102,7 @@ public class RowImpl implements Row, Cloneable {
 			+ "        order by 1,4 ";
 
 	public static ThreadLocal<List<PartitionRecord<Long>>> partitions = new ThreadLocal<>();
-	public static ThreadLocal<Set<String>> partitionNames =  ThreadLocal.withInitial(() -> new HashSet<String>());
+	
 
 
 	/**
@@ -915,31 +915,33 @@ public class RowImpl implements Row, Cloneable {
 	 * Return the SQL for a prepared statement insert on this row.
 	 */
 	 private String getInsertSQL(DBDictionary dict) {
-	        StringBuilder buf = new StringBuilder();
-	        StringBuilder vals = new StringBuilder();
+			String schemaName = getTable().getSchemaIdentifier().getName();
+			schemaName = schemaName == null ? "": schemaName + ".";
+			String tableName = getTable().getIdentifier().getName().toLowerCase();
 
-	        String unpartitionedTableNameFullName = dict.getFullName(getTable(), false);
-	        
+			PartitionRecord<Long> p = getMaxLevelPartitionRecordFor(tableName);
 
-	        //Assume that partitioned table have the schema name prefixed. dirty hack! - should be looked up from partition table map.
-	        if(!partitionNames.get().contains(getTable().getIdentifier().getName())) {
-	        	buf.append("INSERT INTO ")
-	        	.append(unpartitionedTableNameFullName).append(" (");
-	        }
-	        else {
+			if (p != null) {
+				schemaName +="_part";
+				if (p.getLevel() == 2) {
+					int runidIndex = lookupColumnIndexOfPartitionKey("runid");
+					int sourceidIndex = lookupColumnIndexOfPartitionKey("sourceid");
+					tableName = getPartitionTableName(tableName, (Integer) _vals[runidIndex], (Long) _vals[sourceidIndex]);
+				}
+				if (p.getLevel() == 1) {
+					int runidIndex = lookupColumnIndexOfPartitionKey("runid");
+					tableName = getPartitionTableName(tableName, (Integer) _vals[runidIndex],  null);
+				}
 
-	        	
-	        	String schemaName = unpartitionedTableNameFullName.split("\\.")[0];
-	        	String unpartitionedTableName = unpartitionedTableNameFullName.split("\\.")[1];
+			}
 
-	        	//vals0 = runid vals2 = sourceid. FIXME: get index partition metadata, tableName->list of keys
-	        	String partionedTableName = getPartitionTableName(unpartitionedTableName,(Integer) _vals[0], (Long)_vals[2]);
-	        	buf.append("INSERT INTO ")
-	        	.append(schemaName)
-	        	.append("_part.")
-	        	.append(partionedTableName).append(" (");
-	        }
+			StringBuilder buf = new StringBuilder();
+			buf.append("INSERT INTO ");
+			buf.append(schemaName + tableName);
 
+			buf.append(" (");
+
+			StringBuilder vals = new StringBuilder();
 
 	        boolean hasVal = false;
 	        for (int i = 0; i < _cols.length; i++) {
