@@ -1241,14 +1241,11 @@ public class RowImpl implements Row, Cloneable {
 		ResultSet resultSet = pSt.executeQuery();
 
 		while (resultSet.next() == true) {
-			PartitionRecord<Long> partitionRecord = new PartitionRecord<Long>(resultSet.getString(1),
-					resultSet.getString(2), resultSet.getString(3), resultSet.getLong(4),
-					(resultSet.getLong(5)) == 0 ? null : resultSet.getLong(5), resultSet.getShort(6), null);
+			PartitionRecord<Long> partitionRecord = new PartitionRecord<Long>(resultSet.getString(1), resultSet.getString(2),
+					resultSet.getString(3), resultSet.getLong(4), (resultSet.getLong(5)) == 0 ? null : resultSet.getLong(5),
+					resultSet.getShort(6), null);
 
 			partitions.add(partitionRecord);
-			//lvl one only
-			if(partitionRecord.getLevel()==1)
-				partitionNames.get().add(resultSet.getString(1));
 		}
 
 		RowImpl.partitions.set(partitions);
