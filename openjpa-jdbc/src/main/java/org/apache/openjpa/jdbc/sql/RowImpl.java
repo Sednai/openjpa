@@ -915,14 +915,13 @@ public class RowImpl implements Row, Cloneable {
 	 * Return the SQL for a prepared statement insert on this row.
 	 */
 	 private String getInsertSQL(DBDictionary dict) {
-			String schemaName = getTable().getSchemaIdentifier().getName();
-			schemaName = schemaName == null ? "": schemaName + ".";
+			String schemaName = getTable().getSchemaIdentifier().getName();			
 			String tableName = getTable().getIdentifier().getName();
 
 			PartitionRecord<Long> p = getMaxLevelPartitionRecordFor(tableName);
 
 			if (p != null) {
-				schemaName +="_part";
+				schemaName +="_part.";
 				if (p.getLevel() == 2) {
 					int runidIndex = lookupColumnIndexOfPartitionKey("runid");
 					int sourceidIndex = lookupColumnIndexOfPartitionKey("sourceid");
@@ -932,6 +931,10 @@ public class RowImpl implements Row, Cloneable {
 					int runidIndex = lookupColumnIndexOfPartitionKey("runid");
 					tableName = getPartitionTableName(tableName, (Integer) _vals[runidIndex],  null);
 				}
+			}
+		 	else
+			{
+				schemaName = schemaName == null ? "": schemaName + ".";
 			}
 
 			StringBuilder buf = new StringBuilder();
