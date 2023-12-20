@@ -917,7 +917,7 @@ public class RowImpl implements Row, Cloneable {
 	 private String getInsertSQL(DBDictionary dict) {
 			String schemaName = getTable().getSchemaIdentifier().getName();
 			schemaName = schemaName == null ? "": schemaName + ".";
-			String tableName = getTable().getIdentifier().getName().toLowerCase();
+			String tableName = getTable().getIdentifier().getName();
 
 			PartitionRecord<Long> p = getMaxLevelPartitionRecordFor(tableName);
 
@@ -932,12 +932,18 @@ public class RowImpl implements Row, Cloneable {
 					int runidIndex = lookupColumnIndexOfPartitionKey("runid");
 					tableName = getPartitionTableName(tableName, (Integer) _vals[runidIndex],  null);
 				}
-
 			}
 
 			StringBuilder buf = new StringBuilder();
 			buf.append("INSERT INTO ");
-			buf.append(schemaName + tableName);
+			//partionned INSERT
+			if(p!=null) {
+				buf.append(schemaName + tableName);
+			}
+			//backward standard openjpa INSERT compatibility
+			else {
+	            buf.append(dict.getFullName(getTable(), false));
+			}
 
 			buf.append(" (");
 
@@ -1203,7 +1209,7 @@ public class RowImpl implements Row, Cloneable {
 		// assume unpartitionned
 		PartitionRecord<Long> maxLevelPartitionRecord = null;
 		for (PartitionRecord<Long> p : partitions.get()) {
-			if (p.getParentName().startsWith(tableName)) {
+			if (p.getParentName().startsWith(tableName.toLowerCase())) {
 				if (maxLevelPartitionRecord == null || p.getLevel() > maxLevelPartitionRecord.getLevel()) {
 					maxLevelPartitionRecord = p;
 				}
